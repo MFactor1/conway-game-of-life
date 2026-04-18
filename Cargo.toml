@@ -1,5 +1,5 @@
 [package]
-name = "conway-game-of-life"
+name = "conwaygol"
 version = "0.1.0"
 description = "Conway game of life"
 authors = ["MFactor1 <mingsqu@gmail.com>"]

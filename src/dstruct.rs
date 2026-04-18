@@ -1,6 +1,7 @@
 use std::slice::Iter;
 
-pub struct Matrix<T> {
+#[derive(Clone)]
+pub struct Matrix<T: Clone> {
     width: usize,
     height: usize,
     arr: Vec<T>,
@@ -20,13 +21,20 @@ impl<T: Clone> Matrix<T> {
         self.arr[x + y*self.width] = val
     }
 
-    pub fn get(&self, x: usize, y: usize) -> &T {
-        self.check_bounds(x, y);
-        &self.arr[x + y*self.width]
+    pub fn get(&self, x: usize, y: usize) -> Option<&T> {
+        self.arr.get(x + y*self.width)
     }
 
     pub fn iter(&self) -> MatrixIter<'_, T> {
         MatrixIter::new(self)
+    }
+
+    pub fn width(&self) -> usize {
+        self.width
+    }
+
+    pub fn height(&self) -> usize {
+        self.height
     }
 
     fn check_bounds(&self, x: usize, y: usize) {
@@ -43,7 +51,7 @@ pub struct MatrixIter<'a, T> {
     arr: &'a Vec<T>,
 }
 
-impl<'a, T> MatrixIter<'a, T> {
+impl<'a, T: Clone> MatrixIter<'a, T> {
     pub fn new(matrix: &'a Matrix<T>) -> Self {
         MatrixIter {
             count: 0,
@@ -54,7 +62,7 @@ impl<'a, T> MatrixIter<'a, T> {
     }
 }
 
-impl<'a, T: Clone> Iterator for MatrixIter<'a, T> {
+impl<'a, T> Iterator for MatrixIter<'a, T> {
     type Item = Iter<'a, T>;
 
     fn next(&mut self) -> Option<Self::Item> {

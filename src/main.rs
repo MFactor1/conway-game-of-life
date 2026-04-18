@@ -1,18 +1,39 @@
 use std::io;
 use std::cmp;
+use std::mem;
+use std::sync::Mutex;
+use std::time::Duration;
+use std::thread;
 
+use crossterm::event::poll;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::prelude::*;
 use ratatui::widgets::Block;
 use ratatui::{DefaultTerminal, Frame, widgets::Widget};
 
+use conwaygol;
+use conwaygol::dstruct::Matrix;
+
 fn main() -> io::Result<()> {
     ratatui::run(|terminal| {
+        let w = 200;
+        let h = 200;
+        let mut mat = Matrix::new(w.into(), h.into(), false);
+        mat.set(100, 100, true);
+        mat.set(101, 100, true);
+        mat.set(101, 99, true);
+        mat.set(101, 98, true);
+        mat.set(102, 98, true);
+        mat.set(102, 97, true);
+        mat.set(103, 97, true);
+
         Renderer {
-            width: 3,
-            height: 3,
-            exit: false,
-            tiles: vec![vec![true, false, true], vec![false, true, false], vec![true, false, true]],
+            width: w,
+            height: h,
+            exit: false.into(),
+            running: false.into(),
+            tiles: mat,
+            tiles_cpy: Matrix::new(w.into(), h.into(), false),
         }.run(terminal)
     })
 }
@@ -20,15 +41,22 @@ fn main() -> io::Result<()> {
 pub struct Renderer {
     width: u16,
     height: u16,
-    exit: bool,
-    tiles: Vec<Vec<bool>>,
+    exit: Mutex<bool>,
+    running: Mutex<bool>,
+    tiles: Matrix<bool>,
+    tiles_cpy: Matrix<bool>,
 }
 
 impl Renderer {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !self.exit {
+        while !*self.exit.lock().unwrap() {
             terminal.draw(|frame| self.draw(frame))?;
-            self.handle_events()?;
+            let event_handler = thread::spawn(|| { self.handle_events() });
+
+            if *self.running.lock().unwrap() {
+                conwaygol::run_iteration(&self.tiles, &mut self.tiles_cpy);
+                mem::swap(&mut self.tiles, &mut self.tiles_cpy);
+            }
         }
         Ok(())
     }
@@ -41,24 +69,40 @@ impl Renderer {
     }
 
     fn handle_events(&mut self) -> io::Result<()> {
-        match event::read()? {
-            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                self.handle_key_event(key_event)
+        loop {
+            if poll(Duration::from_millis(100))? {
+                match event::read()? {
+                    Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                        if self.handle_key_event(key_event) {
+                            return Ok(());
+                        }
+                    }
+                    _ => {}
+                };
             }
-            _ => {}
-        };
-        Ok(())
-    }
-
-    fn handle_key_event(&mut self, key_event: KeyEvent) {
-        match key_event.code {
-            KeyCode::Char('q') => self.exit(),
-            _ => {},
         }
     }
 
+    fn handle_key_event(&mut self, key_event: KeyEvent) -> bool {
+        match key_event.code {
+            KeyCode::Char('q') => {
+                self.exit();
+                return true;
+            },
+            KeyCode::Char(' ') => self.toggle_run(),
+            _ => {},
+        }
+
+        return false;
+    }
+
     fn exit(&mut self) {
-        self.exit = true;
+        *self.exit.lock().unwrap() = true;
+    }
+
+    fn toggle_run(&mut self) {
+        let mut running = self.running.lock().unwrap();
+        *running = !*running
     }
 }
 
