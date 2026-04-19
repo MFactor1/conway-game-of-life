@@ -1,6 +1,7 @@
 use std::io;
 use std::cmp;
 use std::mem;
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Duration;
 use std::thread;
@@ -16,24 +17,28 @@ use conwaygol::dstruct::Matrix;
 
 fn main() -> io::Result<()> {
     ratatui::run(|terminal| {
-        let w = 200;
-        let h = 200;
+        let w = 64;
+        let h = 64;
         let mut mat = Matrix::new(w.into(), h.into(), false);
-        mat.set(100, 100, true);
-        mat.set(101, 100, true);
-        mat.set(101, 99, true);
-        mat.set(101, 98, true);
-        mat.set(102, 98, true);
-        mat.set(102, 97, true);
-        mat.set(103, 97, true);
+        mat.set(20, 20, true);
+        mat.set(21, 20, true);
+        mat.set(21, 19, true);
+        mat.set(21, 18, true);
+        mat.set(22, 18, true);
+        mat.set(22, 17, true);
+        mat.set(23, 17, true);
+
+        let state = State {
+            exit: Mutex::new(false).into(),
+            running: Mutex::new(false).into(),
+        };
 
         Renderer {
             width: w,
             height: h,
-            exit: false.into(),
-            running: false.into(),
             tiles: mat,
             tiles_cpy: Matrix::new(w.into(), h.into(), false),
+            state: state,
         }.run(terminal)
     })
 }
@@ -41,23 +46,34 @@ fn main() -> io::Result<()> {
 pub struct Renderer {
     width: u16,
     height: u16,
-    exit: Mutex<bool>,
-    running: Mutex<bool>,
     tiles: Matrix<bool>,
     tiles_cpy: Matrix<bool>,
+    state: State,
+}
+
+#[derive(Clone)]
+struct State {
+    exit: Arc<Mutex<bool>>,
+    running: Arc<Mutex<bool>>,
 }
 
 impl Renderer {
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
-        while !*self.exit.lock().unwrap() {
-            terminal.draw(|frame| self.draw(frame))?;
-            let event_handler = thread::spawn(|| { self.handle_events() });
+        let t_state = self.state.clone();
+        let event_handler = thread::spawn(|| { Renderer::handle_events(t_state) });
 
-            if *self.running.lock().unwrap() {
+        while !*self.state.exit.lock().unwrap() {
+            terminal.draw(|frame| self.draw(frame))?;
+
+            if *self.state.running.lock().unwrap() {
                 conwaygol::run_iteration(&self.tiles, &mut self.tiles_cpy);
                 mem::swap(&mut self.tiles, &mut self.tiles_cpy);
             }
+
+            thread::sleep(Duration::from_millis(50));
         }
+
+        event_handler.join().unwrap().unwrap();
         Ok(())
     }
 
@@ -68,12 +84,12 @@ impl Renderer {
         );
     }
 
-    fn handle_events(&mut self) -> io::Result<()> {
+    fn handle_events(mut state: State) -> io::Result<()> {
         loop {
             if poll(Duration::from_millis(100))? {
                 match event::read()? {
                     Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
-                        if self.handle_key_event(key_event) {
+                        if Renderer::handle_key_event(&mut state, key_event) {
                             return Ok(());
                         }
                     }
@@ -83,25 +99,25 @@ impl Renderer {
         }
     }
 
-    fn handle_key_event(&mut self, key_event: KeyEvent) -> bool {
+    fn handle_key_event(state: &mut State, key_event: KeyEvent) -> bool {
         match key_event.code {
             KeyCode::Char('q') => {
-                self.exit();
+                Renderer::exit(state);
                 return true;
             },
-            KeyCode::Char(' ') => self.toggle_run(),
+            KeyCode::Char(' ') => Renderer::toggle_run(state),
             _ => {},
         }
 
         return false;
     }
 
-    fn exit(&mut self) {
-        *self.exit.lock().unwrap() = true;
+    fn exit(state: &mut State) {
+        *state.exit.lock().unwrap() = true;
     }
 
-    fn toggle_run(&mut self) {
-        let mut running = self.running.lock().unwrap();
+    fn toggle_run(state: &mut State) {
+        let mut running = state.running.lock().unwrap();
         *running = !*running
     }
 }
@@ -139,7 +155,7 @@ where
 
         for (cell, lit) in cells.zip(self.items) {
             Block::new()
-                .style(if *lit { Style::new().on_white() } else { Style::new().on_black() })
+                .style(if *lit { Style::new().on_magenta() } else { Style::new().on_black() })
                 .render(cell, buf);
         }
     }
